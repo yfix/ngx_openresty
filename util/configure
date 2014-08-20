@@ -78,7 +78,7 @@ my @modules = (
     [http_redis2 => 'redis2-nginx-module'],
     [http_redis => 'redis-nginx-module'],
     #[http_upstream_keepalive => 'upstream-keepalive-nginx-module'],
-    [http_auth_request => 'auth-request-nginx-module'],
+    #[http_auth_request => 'auth-request-nginx-module'],
     [http_rds_json => 'rds-json-nginx-module'],
     [http_rds_csv => 'rds-csv-nginx-module'],
 );
@@ -122,6 +122,10 @@ my $cores;
 my $luajit_xcflags = '';
 
 my (@ngx_opts, @ngx_cc_opts, @ngx_ld_opts);
+
+# use -O2 to compile everything by default (which can be overridden
+# by the user's own --with-cc-opt=OPTS option):
+push @ngx_cc_opts, "-O2";
 
 for my $opt (@ARGV) {
     next unless defined $opt;
@@ -171,6 +175,9 @@ for my $opt (@ARGV) {
     } elsif ($opt eq '--without-lua_resty_redis') {
         $resty_opts{no_lua_resty_redis} = 1;
 
+    } elsif ($opt eq '--without-lua_resty_dns') {
+        $resty_opts{no_lua_resty_dns} = 1;
+
     } elsif ($opt eq '--without-lua_resty_mysql') {
         $resty_opts{no_lua_resty_mysql} = 1;
 
@@ -185,6 +192,9 @@ for my $opt (@ARGV) {
 
     } elsif ($opt eq '--without-lua_resty_lock') {
         $resty_opts{no_lua_resty_lock} = 1;
+
+    } elsif ($opt eq '--without-lua_resty_lrucache') {
+        $resty_opts{no_lua_resty_lrucache} = 1;
 
     } elsif ($opt eq '--without-lua_resty_core') {
         $resty_opts{no_lua_resty_core} = 1;
@@ -288,7 +298,7 @@ if (@ngx_ld_opts) {
     $ld_opts = " \\\n  --with-ld-opt='@ngx_ld_opts'";
 }
 
-my $cmd = "./configure --prefix=$ngx_prefix"
+my $cmd = "sh ./configure --prefix=$ngx_prefix"
     . $resty_opts
     . $ld_opts
     . (@ngx_opts ? " \\\n  @ngx_opts" : "");
@@ -442,7 +452,7 @@ _END_
     my $opts_line = '';
 
     if ($opts->{debug}) {
-        #unshift @ngx_cc_opts, '-O0';
+        unshift @ngx_cc_opts, '-DNGX_LUA_USE_ASSERT', '-DNGX_LUA_ABORT_AT_PANIC';
         $opts_line .= " \\\n  --with-debug";
 
     } else {
@@ -559,6 +569,9 @@ _END_
 
         if (defined $cc) {
             $extra_opts .= " CC='$cc'";
+
+        } else {
+            $extra_opts .= " CC=cc";
         }
 
         if (defined $cores) {
@@ -696,7 +709,7 @@ _EOC_
             if (defined $cc) {
                 $extra_opts .= " CC='$cc'";
             } else {
-                $extra_opts .= " CC=gcc";
+                $extra_opts .= " CC=cc";
             }
 
             push @make_cmds, "cd $root_dir/build/$dir && ".
@@ -743,7 +756,7 @@ _EOC_
             if (defined $cc) {
                 $extra_opts .= " CC='$cc'";
             } else {
-                $extra_opts .= " CC=gcc";
+                $extra_opts .= " CC=cc";
             }
 
             push @make_cmds, "cd $root_dir/build/$dir && ".
@@ -790,7 +803,7 @@ _EOC_
             if (defined $cc) {
                 $extra_opts .= " CC='$cc'";
             } else {
-                $extra_opts .= " CC=gcc";
+                $extra_opts .= " CC=cc";
             }
 
             push @make_cmds, "cd $root_dir/build/$dir && ".
@@ -801,7 +814,7 @@ _EOC_
         }
 
         for my $key (qw(dns memcached redis mysql string upload websocket
-                        lock core upstream_healthcheck))
+                        lock lrucache core upstream_healthcheck))
         {
             unless ($opts->{"no_lua_resty_$key"}) {
                 (my $key2 = $key) =~ s/_/-/g;
@@ -851,7 +864,7 @@ sub usage ($) {
 
   --prefix=PATH                      set the installation prefix
 
-  --with-debug                       enable the debugging logging and also enable -O0 -g for gcc.
+  --with-debug                       enable the debugging logging and also enable -O0 -g for the C compiler.
                                      this not only affects nginx, but also other components.
   --with-dtrace-probes               enable dtrace USDT probes
   --with-dtrace=PATH                 set dtrace utility pathname
@@ -928,6 +941,7 @@ _EOC_
   --without-lua_resty_string         disable the lua-resty-string library
   --without-lua_resty_websocket      disable the lua-resty-websocket library
   --without-lua_resty_lock           disable the lua-resty-lock library
+  --without-lua_resty_lrucache       disable the lua-resty-lrucache library
   --without-lua_resty_core           disable the lua-resty-core library
 
   --with-lua51                       enable and build the bundled standard Lua 5.1 interpreter
@@ -975,6 +989,7 @@ Options directly inherited from nginx
   --with-http_dav_module             enable ngx_http_dav_module
   --with-http_flv_module             enable ngx_http_flv_module
   --with-http_gzip_static_module     enable ngx_http_gzip_static_module
+  --with-http_auth_request_module    enable ngx_http_auth_request_module
   --with-http_random_index_module    enable ngx_http_random_index_module
   --with-http_secure_link_module     enable ngx_http_secure_link_module
   --with-http_degradation_module     enable ngx_http_degradation_module
