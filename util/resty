@@ -29,7 +29,8 @@ if (!-f $nginx_path) {
 }
 
 if ($opts{V}) {
-    exec "$nginx_path -V";
+    my $cmd = "$nginx_path -V";
+    exec $cmd or die "Failed to run command \"$cmd\": $!\n";
 }
 
 my $lua_package_path_config = '';
@@ -110,6 +111,12 @@ my $loader = <<_EOC_;
             end
 _EOC_
 
+my $env_list = '';
+for my $var (sort keys %ENV) {
+    #warn $var;
+    $env_list .= "env $var;\n";
+}
+
 my $conf_file = File::Spec->catfile($conf_dir, "nginx.conf");
 open my $out, ">$conf_file"
     or die "Cannot open $conf_file for writing: $!\n";
@@ -119,11 +126,7 @@ daemon off;
 master_process off;
 worker_processes 1;
 
-env LD_LIBRARY_PATH;
-env LD_PRELOAD;
-env PATH;
-env LUA_PATH;
-env LUA_CPATH;
+$env_list
 
 error_log /dev/stderr warn;
 #error_log /dev/stderr debug;
@@ -177,13 +180,22 @@ $lua_package_path_config
             return concat(dst)
         end
 
-        print = function (...)
+        local function output(...)
             local args = {...}
 
             return stdout:write(expand_table(args, true))
         end
-        ngx.print = print
-        ngx.say = function (...) local ok, err = print(...) if ok then return print("\\\\n") end return ok, err end
+
+        ngx.print = output
+        ngx.say = function (...)
+                local ok, err = output(...)
+                if ok then
+                    return output("\\\\n")
+                end
+                return ok, err
+            end
+        print = ngx.say
+
         ngx.flush = function (...) return stdout:flush() end
         -- we cannot close stdout here due to a bug in Lua:
         ngx.eof = function (...) return true end
@@ -259,7 +271,7 @@ if (!defined $pid) {
 
 if ($pid == 0) {  # child process
     #warn "exec $cmd...";
-    exec $cmd;
+    exec $cmd or die "Failed to run command \"$cmd\": $!\n";
 
 } else {
     $child_pid = $pid;
